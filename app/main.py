@@ -1,9 +1,9 @@
 import logging
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.auth import login_vcf, require_session_token
+from app.auth import SessionData, login_vcf, require_session_token
 from app.config import get_settings
 from app.errors import AppError, app_error_handler, unhandled_error_handler
 from app.schemas import LoginRequest, LoginResponse, VirtualCenterItem, VirtualCentersResponse
@@ -36,20 +36,30 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/api/login", response_model=LoginResponse)
-async def login(payload: LoginRequest) -> LoginResponse:
-    token, expires_in = await login_vcf(payload.username, payload.password)
-    return LoginResponse(token=token, expires_in=expires_in)
+async def login(payload: LoginRequest, response: Response) -> LoginResponse:
+    session_token, expires_in = await login_vcf(payload.username, payload.password, payload.baseUrl)
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=expires_in,
+    )
+    return LoginResponse(success=True)
 
 
 @app.get("/api/virtualcenters", response_model=VirtualCentersResponse)
-async def virtual_centers(vcf_token: str = Depends(require_session_token)) -> VirtualCentersResponse:
-    raw_items = await vcf_client.get_virtual_centers(token=vcf_token)
+async def virtual_centers(session: SessionData = Depends(require_session_token)) -> VirtualCentersResponse:
+    raw_items = await vcf_client.get_virtual_centers(token=session.vcf_token, base_url=session.base_url)
 
     items = [
         VirtualCenterItem(
             id=item.get("id") or item.get("uuid"),
             name=item.get("name"),
             fqdn=item.get("fqdn") or item.get("hostname"),
+            status=item.get("status") or item.get("health"),
+            version=item.get("version") or item.get("build"),
             raw=item,
         )
         for item in raw_items

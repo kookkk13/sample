@@ -22,6 +22,7 @@ class VCFClient:
         *,
         headers: Mapping[str, str] | None = None,
         json: dict | None = None,
+        base_url: str | None = None,
     ) -> httpx.Response:
         last_exc: Exception | None = None
         timeout = httpx.Timeout(self.settings.vcf_timeout_seconds)
@@ -29,7 +30,7 @@ class VCFClient:
         for attempt in range(self.settings.vcf_retry_count + 1):
             try:
                 async with httpx.AsyncClient(
-                    base_url=self.settings.vcf_base_url,
+                    base_url=base_url or self.settings.vcf_base_url,
                     timeout=timeout,
                     verify=self.settings.vcf_verify_ssl,
                 ) as client:
@@ -46,11 +47,12 @@ class VCFClient:
             details={"error": str(last_exc)} if last_exc else None,
         )
 
-    async def login_vcf(self, username: str, password: str) -> str:
+    async def login_vcf(self, username: str, password: str, base_url: str | None = None) -> str:
         response = await self._request_with_retry(
             "POST",
             "/api/session",
             json={"username": username, "password": password},
+            base_url=base_url,
         )
 
         if response.status_code == 401:
@@ -74,11 +76,12 @@ class VCFClient:
 
         return token
 
-    async def get_virtual_centers(self, token: str) -> list[dict]:
+    async def get_virtual_centers(self, token: str, base_url: str | None = None) -> list[dict]:
         response = await self._request_with_retry(
             "GET",
             "/v1/virtual-centers",
             headers={"Authorization": f"Bearer {token}"},
+            base_url=base_url,
         )
 
         if response.status_code == 401:
